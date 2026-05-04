@@ -111,6 +111,56 @@ def log_cmd_err(msg: str):
 def log_done(count: int):
     print(f"\n  {G}✔  Done — {count} action(s) complete.{R}")
 
+
+def print_summary(actions: list, ai_explanation: str = ""):
+    """Print a human-friendly summary report after every run."""
+    w = 56
+
+    print(f"\n{M}{'━' * w}{R}")
+    print(f"{M}{BG}  📋  Summary Report{R}")
+    print(f"{M}{'━' * w}{R}\n")
+
+    # ── AI explanation block ──────────────────────────────────────────────────
+    if ai_explanation:
+        print(f"  {W}{BG}What the AI did:{R}")
+        for line in ai_explanation.strip().splitlines():
+            print(f"  {D}{line.strip()}{R}")
+        print()
+
+    # ── Action breakdown ──────────────────────────────────────────────────────
+    folders  = [a for a in actions if a.get("action") == "create_folder"]
+    files    = [a for a in actions if a.get("action") == "create_file"]
+    commands = [a for a in actions if a.get("action") == "run_command"]
+
+    if folders:
+        print(f"  {Y}{BG}Folders created  ({len(folders)}){R}")
+        for a in folders:
+            path = a.get("args", "").split(",")[0].strip()
+            print(f"  {D}  📁  {C}{path}{R}")
+        print()
+
+    if files:
+        print(f"  {G}{BG}Files created / updated  ({len(files)}){R}")
+        for a in files:
+            args    = a.get("args", "")
+            path    = args.split(",")[0].strip() if "," in args else args.strip()
+            content = args.split(",", 1)[1].strip() if "," in args else ""
+            print(f"  {D}  📄  {C}{path}{R}")
+            if content:
+                preview = content[:55] + ("…" if len(content) > 55 else "")
+                print(f"  {D}      content → {Y}\"{preview}\"{R}")
+        print()
+
+    if commands:
+        print(f"  {B}{BG}Commands run  ({len(commands)}){R}")
+        for a in commands:
+            print(f"  {D}  $   {a.get('args','')}{R}")
+        print()
+
+    total = len(actions)
+    print(f"  {G}{BG}✔  {total} action(s) completed successfully.{R}")
+    print(f"{M}{'━' * w}{R}\n")
+
 def log_warn(msg: str):
     print(f"\n{Y}[WARN]{R}  {msg}")
 
