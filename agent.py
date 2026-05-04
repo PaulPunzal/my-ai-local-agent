@@ -56,7 +56,7 @@ def run_command(command: str) -> str:
 
 # ─── Action runner ────────────────────────────────────────────────────────────
 
-def run_actions(actions: list) -> None:
+def run_actions(actions: list, explanation: str = "") -> None:
     ui.log_plan(len(actions))
 
     for i, a in enumerate(actions, 1):
@@ -88,34 +88,38 @@ def run_actions(actions: list) -> None:
 
     ui.log_done(len(actions))
     ui.print_file_tree()
+    ui.print_summary(actions, explanation)
 
 # ─── System prompt ────────────────────────────────────────────────────────────
 
-SYSTEM = """You are a precise file-system automation assistant.
+SYSTEM = """You are a file-system assistant. Extract the user's intent and return a JSON array.
 
-Given a user request, output ONLY a sequence of ACTION/ARGS pairs — nothing else.
-No explanation. No commentary. No numbering. No blank lines between pairs.
+Each item in the array must have:
+  "action"      : one of create_folder | create_file | run_command
+  "path"        : full relative path — use the snapshot to resolve vague names like "the Projects folder"
+  "content"     : file content string (only for create_file, empty string otherwise)
 
-Available actions:
-  create_folder   ARGS: <relative/path>
-  create_file     ARGS: <relative/path>, <file content>
-  run_command     ARGS: <shell command>
+Optionally add ONE extra item at the END of the array with:
+  "action": "explanation"
+  "path": ""
+  "content": "A short 1-2 sentence plain-English summary of what you did and why."
 
 Rules:
-- Use forward slashes for nested paths: Introduction/About/bio.txt
-- For create_file, ALWAYS put the content after the comma on the SAME ARGS line
-- Do NOT wrap values in quotes
-- Do NOT use run_command echo to write file content — use create_file with content
-- Output ONLY the ACTION/ARGS blocks, nothing else
+- NEVER create a folder for a filename — filenames have extensions like .txt .py .md
+- NEVER use run_command to write file content — use create_file with content instead
+- Resolve folder names from the snapshot — "Projects folder" = its full path in the snapshot
+- Output raw JSON only — no markdown fences, no extra commentary outside the array
 
-Example input:  Create folder Hello with subfolder World, inside World create hi.txt with content Greetings
+Example snapshot:
+  Introduction/
+  Introduction/Projects/
+
+Example input: Inside the Projects folder create hello.txt with content Hi
 Example output:
-ACTION: create_folder
-ARGS: Hello
-ACTION: create_folder
-ARGS: Hello/World
-ACTION: create_file
-ARGS: Hello/World/hi.txt, Greetings
+[
+  {"action": "create_file", "path": "Introduction/Projects/hello.txt", "content": "Hi"},
+  {"action": "explanation", "path": "", "content": "Created hello.txt inside Introduction/Projects/ with the greeting text you specified."}
+]
 """
 
 # ─── Parser ───────────────────────────────────────────────────────────────────
@@ -212,20 +216,57 @@ def _snapshot() -> str:
 
 def process(user_input: str) -> None:
     """Full pipeline: send to AI → parse → execute. Called by main.py."""
+    import json, re
+
     snapshot = _snapshot()
     prompt   = (
         f"{SYSTEM}\n\n"
-        f"Current working directory structure:\n{snapshot}\n\n"
+        f"Current filesystem snapshot:\n{snapshot}\n\n"
         f"User request: {user_input}"
     )
     response = llm.invoke(prompt)
-
     ui.log_ai_raw(response)
 
-    actions = parse_response(response)
+    # ── extract JSON from response (handles markdown fences) ──────────────────
+    raw = response.strip()
+    fence = re.search(r"```(?:json)?\s*([\s\S]+?)```", raw)
+    if fence:
+        raw = fence.group(1).strip()
+    # grab first [...] block if model added commentary around it
+    bracket = re.search(r"(\[\s*\{[\s\S]+?\])", raw)
+    if bracket:
+        raw = bracket.group(1)
 
-    if not actions:
-        ui.log_warn("No valid actions parsed. Try rephrasing your command.")
+    try:
+        items = json.loads(raw)
+    except Exception:
+        ui.log_warn("Could not parse AI response as JSON. Try rephrasing.")
         return
 
-    run_actions(actions)
+    # ── convert JSON items → internal action dicts ────────────────────────────
+    actions     = []
+    explanation = ""
+
+    for item in items:
+        action  = str(item.get("action", "")).strip()
+        path    = str(item.get("path",   "")).strip().strip('"').strip("'")
+        content = str(item.get("content","")).strip().strip('"').strip("'")
+        # pick up optional explanation field any item may carry
+        if not explanation and item.get("explanation"):
+            explanation = str(item["explanation"]).strip()
+
+        if action == "create_folder":
+            actions.append({"action": "create_folder", "args": path})
+        elif action == "create_file":
+            args = f"{path}, {content}" if content else path
+            actions.append({"action": "create_file", "args": args})
+        elif action == "run_command":
+            actions.append({"action": "run_command", "args": path or content})
+        elif action == "explanation":
+            explanation = path or content   # sometimes model puts text in path
+
+    if not actions:
+        ui.log_warn("No valid actions found. Try rephrasing your command.")
+        return
+
+    run_actions(actions, explanation)
