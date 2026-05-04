@@ -43,14 +43,24 @@ def create_file(path: str, content: str = "") -> str:
 
 
 def read_file(path: str) -> str:
-    """Read and return the contents of an existing file."""
+    """Read a file, then use a second LLM call to explain its content to the user."""
     path = path.strip().strip('"').strip("'")
     if not os.path.exists(path):
         ui.log_warn(f"read_file: file not found → {path}")
         return f"[ERROR] File not found: {path}"
     with open(path, "r", encoding="utf-8", errors="replace") as f:
         content = f.read()
+
     ui.log_file_read(path, content)
+
+    explain_prompt = (
+        f"A user asked you to read and explain the file '{path}'. "
+        f"Here are its contents:\n\n{content}\n\n"
+        "Give a friendly, clear explanation of what this file is about and what it contains. "
+        "Be concise — 2 to 4 sentences max. Talk directly to the user."
+    )
+    explanation = llm.invoke(explain_prompt).strip()
+    ui.log_file_explanation(path, explanation)
     return content
 
 
@@ -208,7 +218,6 @@ def run_actions(actions: list, explanation: str = "") -> None:
         time.sleep(0.05)
 
     ui.log_done(len(actions))
-    ui.print_file_tree()
     ui.print_summary(actions, explanation)
 
 # ─── System prompt ────────────────────────────────────────────────────────────

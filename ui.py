@@ -101,6 +101,14 @@ def log_file_read(path: str, content: str):
     if len(content.strip().splitlines()) > 6:
         print(f"  {D}    … ({len(content.strip().splitlines())} lines total){R}")
 
+def log_file_explanation(path: str, explanation: str):
+    """Print the AI's explanation of a file's contents."""
+    print(f"\n  {M}{BG}💬  AI says:{R}")
+    print(f"  {D}{'─' * 50}{R}")
+    for line in explanation.strip().splitlines():
+        print(f"  {W}  {line}{R}")
+    print(f"  {D}{'─' * 50}{R}\n")
+
 def log_grammar_start(path: str, original: str):
     print(f"  {M}✦{R}  grammar   {C}{path}{R}  {D}(sending to AI...){R}")
     print(f"  {D}  original → {original[:80]}{'…' if len(original) > 80 else ''}{R}")
