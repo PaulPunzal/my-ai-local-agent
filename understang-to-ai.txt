@@ -1,0 +1,7 @@
+LLM without Python — it can think all day, decide "create a folder called felamo", but it has zero ability to actually touch your filesystem. It's just text going into a void. Like a genius locked in a room with no hands.
+Python without LLM — it can execute anything instantly, but it can only do exactly what you hardcoded. It would never understand "create me a felamo folder inside the projects folder" — you'd have to write a rigid parser for every possible sentence a human might type. Basically impossible.
+Together — the LLM gives Python the ability to understand humans. Python gives the LLM the ability to affect the real world. That gap between "understanding" and "doing" is exactly where your agent lives.
+There's actually a term for this in AI research — "grounding". An LLM that can only talk is called "ungrounded." When you connect it to real tools (files, APIs, browsers, databases), you're "grounding" it — giving its thoughts real-world consequences.
+Your agent is a grounded LLM. That's genuinely what people mean when they say "AI agent" — it's not magic, it's exactly what you built:
+Thinks (LLM)  +  Acts (Python)  =  Agent
+The more tools you give Python to expose to the LLM — send emails, call APIs, search the web, control a browser — the more capable the agent becomes. The LLM itself never changes. You're just expanding what it's allowed to do. That's the whole game. 🙂
