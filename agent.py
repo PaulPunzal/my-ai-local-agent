@@ -42,6 +42,34 @@ def create_file(path: str, content: str = "") -> str:
     return f"File created: {path}"
 
 
+def read_file(path: str) -> str:
+    """Read and return the contents of an existing file."""
+    path = path.strip().strip('"').strip("'")
+    if not os.path.exists(path):
+        ui.log_warn(f"read_file: file not found → {path}")
+        return f"[ERROR] File not found: {path}"
+    with open(path, "r", encoding="utf-8", errors="replace") as f:
+        content = f.read()
+    ui.log_file_read(path, content)
+    return content
+
+
+def append_to_file(path: str, content: str) -> str:
+    """Append content to an existing file (or create it if missing)."""
+    path    = path.strip().strip('"').strip("'")
+    content = content.strip().strip('"').strip("'")
+
+    parent = os.path.dirname(path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+
+    with open(path, "a", encoding="utf-8") as f:
+        f.write("\n" + content)
+
+    ui.log_file_appended(path, content)
+    return f"Appended to: {path}"
+
+
 def run_command(command: str) -> str:
     command = command.strip().strip('"').strip("'")
     ui.log_cmd(command)
@@ -53,6 +81,48 @@ def run_command(command: str) -> str:
     except subprocess.CalledProcessError as e:
         ui.log_cmd_err(str(e.output))
         return str(e)
+
+# ─── Snapshot with file previews ──────────────────────────────────────────────
+
+def _snapshot() -> str:
+    """
+    Return a compact view of the current working directory.
+    For small text files (≤ 2 KB), include their full contents so the AI
+    can read → understand → append without a separate round-trip.
+    """
+    lines = []
+    skip  = {"venv", "__pycache__", ".git", ".mypy_cache", "node_modules",
+              "agent.py", "main.py", "ui.py", "prompts.py"}
+    TEXT_EXTS = {".txt", ".md", ".py", ".json", ".csv", ".env", ".yaml", ".yml", ".toml", ".ini", ".cfg"}
+    MAX_PREVIEW = 2048  # bytes
+
+    for root, dirs, files in os.walk("."):
+        dirs[:] = sorted(d for d in dirs if d not in skip)
+        rel = os.path.relpath(root, ".")
+        if rel == ".":
+            continue
+        lines.append(rel + "/")
+        for fname in sorted(files):
+            fpath = os.path.join(root, fname)
+            rel_fpath = os.path.join(rel, fname)
+            size = os.path.getsize(fpath)
+            ext  = os.path.splitext(fname)[1].lower()
+
+            if ext in TEXT_EXTS and size <= MAX_PREVIEW:
+                try:
+                    with open(fpath, "r", encoding="utf-8", errors="replace") as f:
+                        contents = f.read().strip()
+                    lines.append(f"  {rel_fpath}  ({size}B)")
+                    lines.append(f"  <<<")
+                    for line in contents.splitlines():
+                        lines.append(f"    {line}")
+                    lines.append(f"  >>>")
+                except Exception:
+                    lines.append(f"  {rel_fpath}  ({size}B) [unreadable]")
+            else:
+                lines.append(f"  {rel_fpath}  ({size}B)")
+
+    return "\n".join(lines) if lines else "(empty — no folders or files yet)"
 
 # ─── Action runner ────────────────────────────────────────────────────────────
 
@@ -78,6 +148,17 @@ def run_actions(actions: list, explanation: str = "") -> None:
                 continue
             create_file(path, content.strip())
 
+        elif atype == "read_file":
+            read_file(args)
+
+        elif atype == "append_to_file":
+            if "," in args:
+                path, content = args.split(",", 1)
+            else:
+                ui.log_warn("append_to_file skipped — no content provided.")
+                continue
+            append_to_file(path.strip(), content.strip())
+
         elif atype == "run_command":
             run_command(args)
 
@@ -95,124 +176,53 @@ def run_actions(actions: list, explanation: str = "") -> None:
 SYSTEM = """You are a file-system assistant. Extract the user's intent and return a JSON array.
 
 Each item in the array must have:
-  "action"      : one of create_folder | create_file | run_command
-  "path"        : full relative path — use the snapshot to resolve vague names like "the Projects folder"
-  "content"     : file content string (only for create_file, empty string otherwise)
+  "action"  : one of create_folder | create_file | read_file | append_to_file | run_command
+  "path"    : full relative path
+  "content" : file content string (for create_file and append_to_file; empty string otherwise)
 
 Optionally add ONE extra item at the END of the array with:
   "action": "explanation"
   "path": ""
   "content": "A short 1-2 sentence plain-English summary of what you did and why."
 
-Rules:
-- NEVER create a folder for a filename — filenames have extensions like .txt .py .md
-- NEVER use run_command to write file content — use create_file with content instead
-- Resolve folder names from the snapshot — "Projects folder" = its full path in the snapshot
+Action guide:
+  create_folder    → make a new directory
+  create_file      → make a NEW file or OVERWRITE an existing one (use only when asked to replace)
+  read_file        → read and understand an existing file's contents (path only, no content needed)
+  append_to_file   → ADD new content to the END of an existing file WITHOUT overwriting it
+  run_command      → run a shell command
+
+IMPORTANT RULES:
+- If the user says "add to", "append", "insert into", or "don't overwrite" → use append_to_file
+- If the user says "read", "explain", "what's in", "summarize" a file → use read_file
+- The snapshot already contains file contents between <<< and >>> — use this to understand what's already there
+- NEVER use create_file when the intent is to add to an existing file
+- NEVER use run_command to write file content — use create_file or append_to_file instead
 - Output raw JSON only — no markdown fences, no extra commentary outside the array
 
 Example snapshot:
   Introduction/
-  Introduction/Projects/
+  Introduction/About/
+    Introduction/About/bio.txt  (27B)
+    <<<
+      My name is PaulJohn Punzal
+    >>>
 
-Example input: Inside the Projects folder create hello.txt with content Hi
-Example output:
+Example — user says "read bio.txt and add a line about my hobby":
 [
-  {"action": "create_file", "path": "Introduction/Projects/hello.txt", "content": "Hi"},
-  {"action": "explanation", "path": "", "content": "Created hello.txt inside Introduction/Projects/ with the greeting text you specified."}
+  {"action": "read_file",      "path": "Introduction/About/bio.txt", "content": ""},
+  {"action": "append_to_file", "path": "Introduction/About/bio.txt", "content": "I love building AI agents."},
+  {"action": "explanation",    "path": "", "content": "Read bio.txt which already had your name, then appended your hobby without overwriting."}
+]
+
+Example — user says "overwrite bio.txt with new content":
+[
+  {"action": "create_file", "path": "Introduction/About/bio.txt", "content": "New content here."},
+  {"action": "explanation", "path": "", "content": "Overwrote bio.txt with the new content you specified."}
 ]
 """
 
-# ─── Parser ───────────────────────────────────────────────────────────────────
-
-KNOWN_ACTIONS = {"create_folder", "create_file", "run_command"}
-
-def parse_response(response: str) -> list:
-    """
-    Single unified pass — handles Format A (ACTION:/ARGS:) and Format B (raw
-    inline) mixed together in any order, which is exactly what llama3 does.
-    Post-pass absorbs orphan echo commands into empty create_file args.
-    """
-    actions = []
-    lines   = [l.strip() for l in response.strip().splitlines() if l.strip()]
-
-    i = 0
-    while i < len(lines):
-        line = lines[i]
-
-        if line.startswith("#") or line.startswith("//"):
-            i += 1
-            continue
-
-        # Format A: ACTION: ... + optional ARGS: on next line
-        if line.upper().startswith("ACTION:"):
-            action = line.split(":", 1)[1].strip()
-            args   = ""
-            if i + 1 < len(lines) and lines[i + 1].upper().startswith("ARGS:"):
-                args = lines[i + 1].split(":", 1)[1].strip()
-                i += 1
-            if action:
-                actions.append({"action": action, "args": args})
-            i += 1
-            continue
-
-        # skip orphan ARGS: lines
-        if line.upper().startswith("ARGS:"):
-            i += 1
-            continue
-
-        # Format B: raw "create_folder Introduction/About" on one line
-        parts     = line.split(None, 1)
-        candidate = parts[0].lower().rstrip(":") if parts else ""
-        if candidate in KNOWN_ACTIONS:
-            args = parts[1].strip() if len(parts) > 1 else ""
-            # llama3 sometimes writes "create_folder ARGS: path" on one line
-            if args.upper().startswith("ARGS:"):
-                args = args.split(":", 1)[1].strip()
-            args = args.strip('"').strip("'")
-            # deduplicate: skip if same action+args already queued
-            if not any(a["action"] == candidate and a["args"] == args for a in actions):
-                actions.append({"action": candidate, "args": args})
-
-        i += 1
-
-    # post-pass: absorb orphan echo into preceding empty create_file
-    merged = []
-    j = 0
-    while j < len(actions):
-        a = actions[j]
-        if (
-            a["action"] == "create_file"
-            and "," not in a["args"]
-            and j + 1 < len(actions)
-            and actions[j + 1]["action"] == "run_command"
-            and actions[j + 1]["args"].lower().startswith("echo")
-        ):
-            echo_text = actions[j + 1]["args"][4:].strip().strip('"').strip("'")
-            merged.append({"action": "create_file", "args": f"{a['args']}, {echo_text}"})
-            j += 2
-        else:
-            merged.append(a)
-            j += 1
-
-    return merged
-
 # ─── Public API ───────────────────────────────────────────────────────────────
-
-def _snapshot() -> str:
-    """Return a compact view of the current working directory for the AI."""
-    lines = []
-    skip  = {"venv", "__pycache__", ".git", ".mypy_cache", "node_modules",
-              "agent.py", "main.py", "ui.py", "prompts.py"}
-    for root, dirs, files in os.walk("."):
-        dirs[:] = sorted(d for d in dirs if d not in skip)
-        rel = os.path.relpath(root, ".")
-        if rel == ".":
-            continue
-        lines.append(rel + "/")
-        for f in sorted(files):
-            lines.append(f"  {rel}/{f}")
-    return "\n".join(lines) if lines else "(empty — no folders or files yet)"
-
 
 def process(user_input: str) -> None:
     """Full pipeline: send to AI → parse → execute. Called by main.py."""
@@ -221,7 +231,7 @@ def process(user_input: str) -> None:
     snapshot = _snapshot()
     prompt   = (
         f"{SYSTEM}\n\n"
-        f"Current filesystem snapshot:\n{snapshot}\n\n"
+        f"Current filesystem snapshot (file contents included between <<< and >>>):\n{snapshot}\n\n"
         f"User request: {user_input}"
     )
     response = llm.invoke(prompt)
@@ -232,7 +242,6 @@ def process(user_input: str) -> None:
     fence = re.search(r"```(?:json)?\s*([\s\S]+?)```", raw)
     if fence:
         raw = fence.group(1).strip()
-    # grab first [...] block if model added commentary around it
     bracket = re.search(r"(\[\s*\{[\s\S]+?\])", raw)
     if bracket:
         raw = bracket.group(1)
@@ -251,7 +260,6 @@ def process(user_input: str) -> None:
         action  = str(item.get("action", "")).strip()
         path    = str(item.get("path",   "")).strip().strip('"').strip("'")
         content = str(item.get("content","")).strip().strip('"').strip("'")
-        # pick up optional explanation field any item may carry
         if not explanation and item.get("explanation"):
             explanation = str(item["explanation"]).strip()
 
@@ -260,10 +268,14 @@ def process(user_input: str) -> None:
         elif action == "create_file":
             args = f"{path}, {content}" if content else path
             actions.append({"action": "create_file", "args": args})
+        elif action == "read_file":
+            actions.append({"action": "read_file", "args": path})
+        elif action == "append_to_file":
+            actions.append({"action": "append_to_file", "args": f"{path}, {content}"})
         elif action == "run_command":
             actions.append({"action": "run_command", "args": path or content})
         elif action == "explanation":
-            explanation = path or content   # sometimes model puts text in path
+            explanation = path or content
 
     if not actions:
         ui.log_warn("No valid actions found. Try rephrasing your command.")

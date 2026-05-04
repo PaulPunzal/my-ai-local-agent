@@ -14,6 +14,21 @@ PRESETS = [
         ),
     },
     {
+        "label": "Read file and explain",
+        "icon":  "👁️",
+        "prompt": (
+            'Read the file Introduction/About/bio.txt and explain what it contains'
+        ),
+    },
+    {
+        "label": "Append to existing file",
+        "icon":  "✏️",
+        "prompt": (
+            'Read Introduction/About/bio.txt then append a new line: '
+            '"I am a developer who loves exploring AI and LLMs."'
+        ),
+    },
+    {
         "label": "Nested project scaffold",
         "icon":  "🏗️",
         "prompt": (

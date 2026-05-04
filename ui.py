@@ -49,7 +49,7 @@ def prompt_input(presets: list) -> str:
     preset number, expand it to the full prompt text. Otherwise return
     whatever they typed as-is.
     """
-    example = 'e.g. Create folder "Dev" with file main.py and echo print("hi")'
+    example = 'e.g. Read bio.txt then append "I love coding" to it'
     print(f"{D}  {example}{R}")
     try:
         raw = input(f"\n{G}paul@HelloWorld{R}:{B}~/ai-agent{R}{M}(AI){R}$ ").strip()
@@ -92,6 +92,21 @@ def log_folder(path: str):
 def log_file_created(path: str):
     print(f"  {G}✔{R}  created   {C}{path}{R}")
 
+def log_file_read(path: str, content: str):
+    """Show a preview of the file the AI just read."""
+    preview_lines = content.strip().splitlines()[:6]
+    print(f"  {B}👁{R}  read      {C}{path}{R}")
+    for line in preview_lines:
+        print(f"  {D}    {line}{R}")
+    if len(content.strip().splitlines()) > 6:
+        print(f"  {D}    … ({len(content.strip().splitlines())} lines total){R}")
+
+def log_file_appended(path: str, content: str):
+    """Show what was appended and to which file."""
+    preview = content[:60] + ("…" if len(content) > 60 else "")
+    print(f"  {G}✔{R}  appended  {C}{path}{R}")
+    print(f"  {Y}  +{R}  {Y}\"{preview}\"{R}")
+
 def log_echo(content: str, path: str):
     preview = content[:60] + ("…" if len(content) > 60 else "")
     print(f"  {Y}✎{R}  echo      {Y}\"{preview}\"{R}  →  {C}{path}{R}")
@@ -128,9 +143,17 @@ def print_summary(actions: list, ai_explanation: str = ""):
         print()
 
     # ── Action breakdown ──────────────────────────────────────────────────────
-    folders  = [a for a in actions if a.get("action") == "create_folder"]
-    files    = [a for a in actions if a.get("action") == "create_file"]
-    commands = [a for a in actions if a.get("action") == "run_command"]
+    folders   = [a for a in actions if a.get("action") == "create_folder"]
+    files     = [a for a in actions if a.get("action") == "create_file"]
+    reads     = [a for a in actions if a.get("action") == "read_file"]
+    appends   = [a for a in actions if a.get("action") == "append_to_file"]
+    commands  = [a for a in actions if a.get("action") == "run_command"]
+
+    if reads:
+        print(f"  {B}{BG}Files read  ({len(reads)}){R}")
+        for a in reads:
+            print(f"  {D}  👁  {C}{a.get('args','')}{R}")
+        print()
 
     if folders:
         print(f"  {Y}{BG}Folders created  ({len(folders)}){R}")
@@ -140,7 +163,7 @@ def print_summary(actions: list, ai_explanation: str = ""):
         print()
 
     if files:
-        print(f"  {G}{BG}Files created / updated  ({len(files)}){R}")
+        print(f"  {G}{BG}Files created / overwritten  ({len(files)}){R}")
         for a in files:
             args    = a.get("args", "")
             path    = args.split(",")[0].strip() if "," in args else args.strip()
@@ -149,6 +172,18 @@ def print_summary(actions: list, ai_explanation: str = ""):
             if content:
                 preview = content[:55] + ("…" if len(content) > 55 else "")
                 print(f"  {D}      content → {Y}\"{preview}\"{R}")
+        print()
+
+    if appends:
+        print(f"  {G}{BG}Files appended  ({len(appends)}){R}")
+        for a in appends:
+            args    = a.get("args", "")
+            path    = args.split(",")[0].strip() if "," in args else args.strip()
+            content = args.split(",", 1)[1].strip() if "," in args else ""
+            print(f"  {D}  ✏️  {C}{path}{R}")
+            if content:
+                preview = content[:55] + ("…" if len(content) > 55 else "")
+                print(f"  {D}      added → {Y}\"{preview}\"{R}")
         print()
 
     if commands:
