@@ -29,6 +29,11 @@ PRESETS = [
         ),
     },
     {
+        "label": "Fix grammar in bio.txt",
+        "icon":  "✦",
+        "prompt": "Fix the grammar and spelling in Introduction/About/bio.txt",
+    },
+    {
         "label": "Nested project scaffold",
         "icon":  "🏗️",
         "prompt": (

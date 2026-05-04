@@ -101,6 +101,41 @@ def log_file_read(path: str, content: str):
     if len(content.strip().splitlines()) > 6:
         print(f"  {D}    … ({len(content.strip().splitlines())} lines total){R}")
 
+def log_grammar_start(path: str, original: str):
+    print(f"  {M}✦{R}  grammar   {C}{path}{R}  {D}(sending to AI...){R}")
+    print(f"  {D}  original → {original[:80]}{'…' if len(original) > 80 else ''}{R}")
+
+def log_grammar_done(path: str, original: str, corrected: str):
+    """Show a word-level diff between original and corrected text."""
+    import difflib
+    orig_words = original.split()
+    corr_words = corrected.split()
+    matcher    = difflib.SequenceMatcher(None, orig_words, corr_words)
+
+    print(f"  {G}✔{R}  grammar fixed  {C}{path}{R}\n")
+    print(f"  {D}{'─' * 50}{R}")
+
+    has_changes = False
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag == "replace":
+            has_changes = True
+            before = " ".join(orig_words[i1:i2])
+            after  = " ".join(corr_words[j1:j2])
+            print(f"  {R}  {D}──{R}  {Y}{before}{R}")
+            print(f"  {R}  {D}++{R}  {G}{after}{R}")
+        elif tag in ("insert", "delete"):
+            has_changes = True
+            if tag == "delete":
+                print(f"  {R}  {D}──{R}  {Y}{' '.join(orig_words[i1:i2])}{R}")
+            else:
+                print(f"  {R}  {D}++{R}  {G}{' '.join(corr_words[j1:j2])}{R}")
+
+    if not has_changes:
+        print(f"  {D}  (no changes — text was already correct!){R}")
+
+    print(f"  {D}{'─' * 50}{R}\n")
+    print(f"  {G}  corrected → {corrected[:80]}{'…' if len(corrected) > 80 else ''}{R}\n")
+
 def log_file_appended(path: str, content: str):
     """Show what was appended and to which file."""
     preview = content[:60] + ("…" if len(content) > 60 else "")
@@ -147,6 +182,7 @@ def print_summary(actions: list, ai_explanation: str = ""):
     files     = [a for a in actions if a.get("action") == "create_file"]
     reads     = [a for a in actions if a.get("action") == "read_file"]
     appends   = [a for a in actions if a.get("action") == "append_to_file"]
+    grammars  = [a for a in actions if a.get("action") == "fix_grammar"]
     commands  = [a for a in actions if a.get("action") == "run_command"]
 
     if reads:
@@ -184,6 +220,12 @@ def print_summary(actions: list, ai_explanation: str = ""):
             if content:
                 preview = content[:55] + ("…" if len(content) > 55 else "")
                 print(f"  {D}      added → {Y}\"{preview}\"{R}")
+        print()
+
+    if grammars:
+        print(f"  {M}{BG}Grammar fixed  ({len(grammars)}){R}")
+        for a in grammars:
+            print(f"  {D}  ✦   {C}{a.get('args','')}{R}")
         print()
 
     if commands:

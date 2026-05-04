@@ -70,6 +70,43 @@ def append_to_file(path: str, content: str) -> str:
     return f"Appended to: {path}"
 
 
+def fix_grammar(path: str) -> str:
+    """Read a file, fix grammar via a dedicated LLM call, overwrite, and show a diff."""
+    path = path.strip().strip('"').strip("'")
+    if not os.path.exists(path):
+        ui.log_warn(f"fix_grammar: file not found → {path}")
+        return f"[ERROR] File not found: {path}"
+
+    with open(path, "r", encoding="utf-8", errors="replace") as f:
+        original = f.read()
+
+    ui.log_grammar_start(path, original)
+
+    grammar_prompt = (
+        "You are a grammar and spelling corrector.\n"
+        "Fix ALL grammar, spelling, punctuation, and capitalization errors in the text below.\n"
+        "Rules:\n"
+        "- Preserve the original meaning and tone exactly\n"
+        "- Do NOT add new sentences or extra information\n"
+        "- Do NOT remove any sentences\n"
+        "- Return ONLY the corrected text — no explanations, no labels, no quotes\n\n"
+        f"Text to fix:\n{original}"
+    )
+
+    corrected = llm.invoke(grammar_prompt).strip()
+
+    # safety: if AI returned nothing or something way too different, bail
+    if not corrected or len(corrected) < len(original) * 0.4:
+        ui.log_warn("fix_grammar: AI response looked wrong — file not changed.")
+        return "[SKIPPED] Grammar fix response looked unsafe."
+
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(corrected)
+
+    ui.log_grammar_done(path, original, corrected)
+    return corrected
+
+
 def run_command(command: str) -> str:
     command = command.strip().strip('"').strip("'")
     ui.log_cmd(command)
@@ -151,6 +188,9 @@ def run_actions(actions: list, explanation: str = "") -> None:
         elif atype == "read_file":
             read_file(args)
 
+        elif atype == "fix_grammar":
+            fix_grammar(args)
+
         elif atype == "append_to_file":
             if "," in args:
                 path, content = args.split(",", 1)
@@ -176,7 +216,7 @@ def run_actions(actions: list, explanation: str = "") -> None:
 SYSTEM = """You are a file-system assistant. Extract the user's intent and return a JSON array.
 
 Each item in the array must have:
-  "action"  : one of create_folder | create_file | read_file | append_to_file | run_command
+  "action"  : one of create_folder | create_file | read_file | append_to_file | fix_grammar | run_command
   "path"    : full relative path
   "content" : file content string (for create_file and append_to_file; empty string otherwise)
 
@@ -190,13 +230,15 @@ Action guide:
   create_file      → make a NEW file or OVERWRITE an existing one (use only when asked to replace)
   read_file        → read and understand an existing file's contents (path only, no content needed)
   append_to_file   → ADD new content to the END of an existing file WITHOUT overwriting it
+  fix_grammar      → read a file, fix all grammar/spelling/punctuation, and save it back (path only)
   run_command      → run a shell command
 
 IMPORTANT RULES:
+- If the user says "fix grammar", "correct", "proofread", "check spelling", "clean up" a file → use fix_grammar
 - If the user says "add to", "append", "insert into", or "don't overwrite" → use append_to_file
 - If the user says "read", "explain", "what's in", "summarize" a file → use read_file
 - The snapshot already contains file contents between <<< and >>> — use this to understand what's already there
-- NEVER use create_file when the intent is to add to an existing file
+- NEVER use create_file when the intent is to add to or fix an existing file
 - NEVER use run_command to write file content — use create_file or append_to_file instead
 - Output raw JSON only — no markdown fences, no extra commentary outside the array
 
@@ -207,6 +249,12 @@ Example snapshot:
     <<<
       My name is PaulJohn Punzal
     >>>
+
+Example — user says "fix the grammar in bio.txt":
+[
+  {"action": "fix_grammar", "path": "Introduction/About/bio.txt", "content": ""},
+  {"action": "explanation", "path": "", "content": "Fixed all grammar and spelling errors in bio.txt and saved the corrected version."}
+]
 
 Example — user says "read bio.txt and add a line about my hobby":
 [
@@ -270,6 +318,8 @@ def process(user_input: str) -> None:
             actions.append({"action": "create_file", "args": args})
         elif action == "read_file":
             actions.append({"action": "read_file", "args": path})
+        elif action == "fix_grammar":
+            actions.append({"action": "fix_grammar", "args": path})
         elif action == "append_to_file":
             actions.append({"action": "append_to_file", "args": f"{path}, {content}"})
         elif action == "run_command":
